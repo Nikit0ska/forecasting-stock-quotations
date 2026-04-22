@@ -506,7 +506,7 @@ export default function App() {
         {/* Footer */}
         <Box sx={{ mt: 3, textAlign: "center" }}>
           <Typography variant="caption" color="text.secondary">
-            Данные обновляются в реальном времени • Прогноз основан на исторических данных
+             • Прогноз основан на исторических данных
           </Typography>
         </Box>
       </Box>

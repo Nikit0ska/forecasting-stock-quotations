@@ -30,7 +30,7 @@ def forecast(asset: str, model: str = "naive", steps: int = 1, start_date: str =
 
     if model == "naive":
         val = naive.forecast(train, len(test))
-        pred = naive.forecast(train, steps)
+        pred = naive.forecast(test, steps)
     elif model == "ma":
         val = moving_average.forecast(train, len(test))
         pred = moving_average.forecast(train, steps)
