@@ -1,0 +1,4 @@
+Для запуска backend:
+uvicorn app.main:app --reload
+Для поднятия frontend части:
+npm start
