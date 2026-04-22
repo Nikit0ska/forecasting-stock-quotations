@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,31 +24,37 @@ def assets():
     return ASSETS
 
 @app.get("/forecast", response_model=ForecastResponse)
-def forecast(asset: str, model: str = "naive", steps: int = 20):
-    series = load_series(asset, start_date = "2025-10-01")
+def forecast(asset: str, model: str = "naive", steps: int = 1, start_date: str = "2026-01-01"):
+    series = load_series(asset, start_date = start_date)
     train, test = train_test_split(series)
 
     if model == "naive":
-        pred = naive.forecast(train, len(test) + steps)
+        val = naive.forecast(train, len(test))
+        pred = naive.forecast(test, steps)
     elif model == "ma":
-        pred = moving_average.forecast(train, len(test)+ steps)
+        val = moving_average.forecast(train, len(test))
+        pred = moving_average.forecast(train, steps)
     elif model == "arima":
-        pred = arima.forecast(train, len(test)+ steps)
+        val = arima.forecast(train, len(test))
+        pred = arima.forecast(train, steps)
     elif model == "exp":
-        pred = exponential_smoothing.forecast(train, len(test)+ steps)
+        val = exponential_smoothing.forecast(train, len(test))
+        pred = exponential_smoothing.forecast(train, steps)
     else:
         raise ValueError("Unknown model")
 
 
     y_true = np.array(test, dtype=float)
-    y_pred = np.array(pred, dtype=float)
+    y_pred = np.array(val, dtype=float)
     metrics = regression_metrics(y_true, y_pred[:len(y_true)])
     dates = train.keys().tolist()
+    dates.extend(test.keys().tolist())
 
     current_date = dates[-1]
-    for i in range(len(test) + steps):
-        dates.append(current_date)
+    for i in range(steps):
         current_date += timedelta(days=1)
+        dates.append(current_date)
+
 
 
     return {
@@ -57,4 +63,5 @@ def forecast(asset: str, model: str = "naive", steps: int = 20):
         "forecast": pred,
         "metrics": metrics,
         "dates": [i.strftime("%Y-%m-%d") for i in dates],
+        "counter": {"train":len(train.tolist()), "test":len(test.tolist()), "forecast":len(pred), "dates":len(dates)},
     }
