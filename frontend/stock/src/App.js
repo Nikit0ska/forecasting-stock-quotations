@@ -52,7 +52,7 @@ export default function App() {
         });
       });
 
-      forecastData.test.forEach((value, index) => {
+      forecastData.val.forEach((value, index) => {
         chartData.push({
           date: allDates[forecastData.train.length + index - 1],
           actual: value,
@@ -60,15 +60,23 @@ export default function App() {
         });
       });
 
+      forecastData.test.forEach((value, index) => {
+        chartData.push({
+          date: allDates[forecastData.val.length + forecastData.train.length + index - 1],
+          actual: value,
+          predicted: null,
+        });
+      });
+
       chartData.push({
-        date: allDates[forecastData.train.length + forecastData.test.length - 1],
+        date: allDates[forecastData.test.length + forecastData.val.length + forecastData.train.length - 1],
         actual: chartData[chartData.length -1].actual,
         predicted: chartData[chartData.length -1].actual,
       });
 
       forecastData.forecast.forEach((value, index) => {
         chartData.push({
-          date: allDates[forecastData.train.length + forecastData.test.length + index],
+          date: allDates[forecastData.val.length + forecastData.train.length + forecastData.test.length + index],
           actual: null,
           predicted: value,
         });
