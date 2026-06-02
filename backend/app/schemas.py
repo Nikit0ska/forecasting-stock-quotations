@@ -9,4 +9,4 @@ class ForecastResponse(BaseModel):
     forecast: List[float]
     metrics: Dict[str, float]
     dates: List[str]
-    # counter: Dict[str, int]
+

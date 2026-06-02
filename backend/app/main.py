@@ -1,14 +1,17 @@
 from datetime import timedelta, datetime
+from typing import Optional, Dict, Any
 
-from fastapi import FastAPI
+import pandas as pd
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 from app.data import load_series, ASSETS
 from app.preprocessing import data_split
 from app.metrics import regression_metrics
 from app.schemas import ForecastResponse
+from app.model_registry import get_forecaster
 
-from app.models import naive, moving_average, arima, exponential_smoothing
+# from app.models import naive, moving_average, arima, exponential_smoothing, auto_arima, wf_arima
 
 app = FastAPI(title="Stock Forecasting System")
 
@@ -23,43 +26,57 @@ app.add_middleware(
 def assets():
     return ASSETS
 
-@app.get("/forecast", response_model=ForecastResponse)
-def forecast(asset: str, model: str = "naive", steps: int = 1, start_date: str = "2026-01-01"):
-    series = load_series(asset, start_date = start_date)
-    train, val, test = data_split(series)
+@app.get("/forecast")
+async def forecast(
+    asset: str = Query(..., description="Тикер актива"),
+    model: str = Query("naive", description="Имя модели"),
+    steps: int = Query(1, ge=1, description="Горизонт прогноза (дней)"),
+    start_date: str = Query("2026-01-01", description="Дата начала данных"),
+    # дополнительные параметры модели можно передать через kwargs
+    order_p: Optional[int] = Query(None),
+    order_d: Optional[int] = Query(None),
+    order_q: Optional[int] = Query(None),
+    seq_length: Optional[int] = Query(None),
+    epochs: Optional[int] = Query(None),
+):
+    try:
+        # Загрузка данных
+        series = load_series(asset, start_date)
+        train, val, test = data_split(series)
+        full_series = pd.concat([train, val, test])
+        train_end = train.index[-1]
+        val_end = val.index[-1]
 
-    if model == "naive":
-        pred, rmse, mae, mape, = naive.forecast(train, val, test, forecast_days=steps)
-    elif model == "ma":
-        pred, rmse, mae, mape, best_window_size = moving_average.forecast(train, val, test, forecast_days=steps, window_range=range(3, 20))
-    elif model == "arima":
-        pred, rmse, mae, mape, best_order = arima.forecast(train, val, test, forecast_days=steps, p_range=range(1, 4), d_range=[1], q_range=range(0, 3))
-    elif model == "exp":
-        pred, rmse, mae, mape, best_alpha = exponential_smoothing.forecast(train, val, test, forecast_days=steps, alpha_range=np.arange(0.1, 1, 0.1))
-    else:
-        raise ValueError("Unknown model")
+        # Получаем модель
+        forecaster = get_forecaster(model)
 
-    dates = train.keys().tolist()
-    dates.extend(val.keys().tolist())
-    dates.extend(test.keys().tolist())
-
-    current_date = dates[-1]
-    for i in range(steps):
-        current_date += timedelta(days=1)
-        dates.append(current_date)
+        # Собираем дополнительные параметры, переданные пользователем
+        extra_kwargs = {}
+        if model == "arima":
+            if order_p is not None and order_d is not None and order_q is not None:
+                extra_kwargs["order"] = (order_p, order_d, order_q)
 
 
+        # Выполняем прогноз
+        result = forecaster.forecast(full_series, train_end, val_end, steps, **extra_kwargs)
 
-    return {
-        "train": train.tolist(),
-        "val": val.tolist(),
-        "test": test.tolist(),
-        "forecast": pred,
-        "metrics": {
-            "RMSE": rmse,
-            "MAE": mae,
-            "MAPE": mape
-        },
-        "dates": [i.strftime("%Y-%m-%d") for i in dates],
+        # Готовим массив дат для ответа (как у вас было)
+        dates = list(train.index) + list(val.index) + list(test.index)
+        last_date = dates[-1]
+        for i in range(1, steps + 1):
+            dates.append(last_date + timedelta(days=i))
 
-    }
+        return {
+            "train": train.tolist(),
+            "val": val.tolist(),
+            "test": test.tolist(),
+            "forecast": result["pred"],
+            "metrics": result["metrics"],
+            "info": result.get("info", {}),
+            "dates": [d.strftime("%Y-%m-%d") for d in dates],
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

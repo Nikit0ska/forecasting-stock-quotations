@@ -1,34 +1,54 @@
+# exp_forecaster.py
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from sklearn.metrics import mean_squared_error, mean_absolute_error
-import statsmodels.api as sm
+from app.models.base_forecaster import BaseForecaster
+from app.models.wf_utils import walk_forward_evaluate
 
-def forecast(train, val, test, forecast_days, alpha_range):
-    y_train = train
-    y_val = val
-    y_test = test
 
-    best_rmse = float('inf')
-    best_predictions = None
-    best_alpha = None
+class ExpSmoothingForecaster(BaseForecaster):
+    def forecast(self, full_series, train_end, val_end, steps,
+                 trend='add',  # 'add', 'mul', None
+                 damped_trend=True,
+                 alpha_range=None,  # если None – подбираем автоматически
+                 **kwargs):
+        if alpha_range is None:
+            alpha_range = np.arange(0.1, 1.0, 0.1)
 
-    # Перебор различных значений alpha
-    for alpha in alpha_range:
-        model = sm.tsa.SimpleExpSmoothing(y_train).fit(smoothing_level=alpha, optimized=False)
-        predictions = model.forecast(forecast_days)  # Прогноз на forecast_days
+        def ets_model_factory(history, params):
+            alpha = params['alpha']
+            try:
+                # Если trend=None, то damped_trend игнорируется
+                model = ExponentialSmoothing(history, trend=trend, damped_trend=damped_trend if trend else False)
+                fit = model.fit(smoothing_level=alpha)
+                return fit
+            except:
+                return None
 
-        # Вычисление метрик для валидации
-        rmse = np.sqrt(mean_squared_error(y_val[:forecast_days], predictions[:len(val)]))  # используем val для подбора
-        if rmse < best_rmse:
-            best_rmse = rmse
-            best_predictions = predictions
-            best_alpha = alpha
+        def predict_func(model, steps):
+            return model.forecast(steps)
 
-    # Финальные предсказания на forecast_days
-    final_predictions = best_predictions
-    rmse = np.sqrt(mean_squared_error(y_test[:forecast_days], final_predictions))
-    mae = mean_absolute_error(y_test[:forecast_days], final_predictions)
-    mape = np.mean(np.abs((y_test[:forecast_days] - final_predictions) / y_test[:forecast_days])) * 100
+        param_list = [{'alpha': a} for a in alpha_range]
 
-    return final_predictions, rmse, mae, mape, best_alpha
+        best_params, _ = walk_forward_evaluate(
+            full_series, train_end, val_end, steps,
+            model_factory=ets_model_factory,
+            predict_func=predict_func,
+            param_combinations=param_list,
+            val_mode=True
+        )
+
+        # Тестирование
+        def fixed_factory(history, params):
+            return ets_model_factory(history, best_params)
+
+        result = walk_forward_evaluate(
+            full_series, train_end, val_end, steps,
+            model_factory=fixed_factory,
+            predict_func=predict_func,
+            param_combinations=None,
+            val_mode=False
+        )
+        result['info'] = best_params
+        # print(best_params)
+        return result

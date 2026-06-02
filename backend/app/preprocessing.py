@@ -1,4 +1,4 @@
-def data_split(series,validation_ratio=0.1 ,test_ratio=0.2):
+def data_split(series,validation_ratio=0.4 ,test_ratio=0.3):
     n = len(series)
     split1 = int(n * (1 - validation_ratio - test_ratio))
     split2 = int(n * (1 - test_ratio))

@@ -1,34 +1,56 @@
+# ma_forecaster.py
 import numpy as np
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+import pandas as pd
+from app.models.base_forecaster import BaseForecaster
+from app.models.wf_utils import walk_forward_evaluate
 
 
-def forecast(train, val, test, forecast_days, window_range):
-    y_train = train
-    y_val = val
-    y_test = test
+class MAModel:
+    def __init__(self, history, window):
+        self.history = history
+        self.window = window
 
-    best_rmse = float('inf')
-    best_predictions = None
-    best_window_size = None
 
-    # Перебор различных размеров окна
-    for window_size in window_range:
-        predictions = []
-        for i in range(forecast_days):  # Прогноз на forecast_days
-            window = train[-(window_size + i):-i] if i > 0 else train[-window_size:]
-            predictions.append(np.mean(window))
+class MAForecaster(BaseForecaster):
+    def forecast(self, full_series, train_end, val_end, steps, window_range=range(3, 365), **kwargs):
+        def ma_model_factory(history, params):
+            if params is None:
+                # при тестовом вызове params уже вшиты в замыкание
+                # поэтому в тестовом режиме мы будем передавать фиксированную фабрику
+                raise ValueError("params must be provided for training")
+            window = params['window']
+            return MAModel(history, window)
 
-        # Вычисление метрик для валидации
-        rmse = np.sqrt(mean_squared_error(y_val[:forecast_days], predictions[:len(val)]))  # используем val для подбора
-        if rmse < best_rmse:
-            best_rmse = rmse
-            best_predictions = predictions
-            best_window_size = window_size
+        def ma_predict_func(model, steps):
+            # model типа MAModel
+            if len(model.history) < model.window:
+                # если недостаточно данных, возвращаем нули
+                return np.zeros(steps)
+            mean_ret = model.history.iloc[-model.window:].mean()
+            return np.array([mean_ret] * steps)
 
-    # Финальные предсказания на forecast_days
-    final_predictions = best_predictions
-    rmse = np.sqrt(mean_squared_error(y_test[:forecast_days], final_predictions))
-    mae = mean_absolute_error(y_test[:forecast_days], final_predictions)
-    mape = np.mean(np.abs((y_test[:forecast_days] - final_predictions) / y_test[:forecast_days])) * 100
+        # Подбор окна на валидации
+        param_list = [{'window': w} for w in window_range]
+        best_params, _ = walk_forward_evaluate(
+            full_series, train_end, val_end, steps,
+            model_factory=ma_model_factory,
+            predict_func=ma_predict_func,
+            param_combinations=param_list,
+            val_mode=True
+        )
 
-    return final_predictions, rmse, mae, mape, best_window_size
+        # Тестирование с лучшим окном
+        # Для тестового режима фиксируем параметры в фабрике
+        def fixed_model_factory(history, params):
+            # params игнорируется
+            return MAModel(history, best_params['window'])
+
+        result = walk_forward_evaluate(
+            full_series, train_end, val_end, steps,
+            model_factory=fixed_model_factory,
+            predict_func=ma_predict_func,
+            param_combinations=None,
+            val_mode=False
+        )
+        result['info'] = {'best_window': best_params['window']}
+        return result
