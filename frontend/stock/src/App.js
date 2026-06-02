@@ -226,10 +226,13 @@ export default function App() {
                       }
                     }}
                   >
-                    <MenuItem value="naive">📊 Naive</MenuItem>
-                    <MenuItem value="ma">📈 Moving Average</MenuItem>
-                    <MenuItem value="arima">🔮 ARIMA</MenuItem>
-                    <MenuItem value="exp">📉 Exponential</MenuItem>
+                    <MenuItem value="naive">Naive</MenuItem>
+                    <MenuItem value="ma">Moving Average</MenuItem>
+                    <MenuItem value="arima">ARIMA</MenuItem>
+                    <MenuItem value="exp">Exponential</MenuItem>
+                    <MenuItem value="prophet">Prophet</MenuItem>
+                    <MenuItem value="lstm">LSTM</MenuItem>
+                    <MenuItem value="gru">GRU</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -337,12 +340,19 @@ export default function App() {
                 color: "#4ECDC4",
                 description: "Средняя абсолютная ошибка"
               },
+                            {
+                label: "MASE",
+                value: metrics.MASE,
+                icon: "📈",
+                color: "#4ECDC4",
+                description: "Средняя абсолютная масштабированная ошибка"
+              },
               {
-                label: "MAPE",
-                value: metrics.MAPE + "%",
+                label: "SMAPE",
+                value: metrics.SMAPE + "%",
                 icon: "🎯",
                 color: "#45B7D1",
-                description: "Средняя абсолютная процентная ошибка"
+                description: "Симметричная средняя абсолютная процентная ошибка"
               },
             ].map((m, index) => (
               <Grid item xs={12} md={4} key={m.label}>
