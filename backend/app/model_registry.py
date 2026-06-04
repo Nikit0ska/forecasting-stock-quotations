@@ -5,7 +5,7 @@ from app.models.auto_arima import AutoARIMAForecaster
 from app.models.lstm_forecaster import LSTMForecaster
 from app.models.prophet_forecaster import ProphetForecaster
 from app.models.gru_forecaster import GRUForecaster
-
+from app.models.transformer_forecaster import TransformerForecaster
 
 # Словарь доступных моделей
 MODELS = {
@@ -15,7 +15,8 @@ MODELS = {
     "arima": AutoARIMAForecaster(),
     "lstm": LSTMForecaster(),
     "prophet": ProphetForecaster(),
-    "gru": GRUForecaster()
+    "gru": GRUForecaster(),
+    "transformer": TransformerForecaster()
 }
 
 def get_forecaster(model_name: str):

@@ -62,5 +62,8 @@ class ProphetForecaster(BaseForecaster):
         return {
             "pred": list(final_pred_price),
             "metrics": {"MAE": mae, "RMSE": rmse, "SMAPE": smape, "MASE": mase},
-            "info": {"method": "Prophet"}
+            "info": {"method": "Prophet"},
+            "test_predictions": list(pred_prices),
+            "test_actuals": list(true_prices),
+            "test_naive_errors": list(naive_errors),
         }

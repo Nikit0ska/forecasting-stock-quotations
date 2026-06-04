@@ -152,5 +152,8 @@ class LSTMForecaster(BaseForecaster):
                 "window_size": self.window_size,
                 "hidden_units": self.hidden_units,
                 "epochs": self.epochs
-            }
+            },
+            "test_predictions": list(pred_prices),
+            "test_actuals": list(true_prices),
+            "test_naive_errors": list(naive_errors),
         }

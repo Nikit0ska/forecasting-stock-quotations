@@ -18,7 +18,6 @@ class AutoARIMAForecaster(BaseForecaster):
         maxiter = kwargs.get('maxiter', 50)
 
         def arima_model_factory(history, params=None):
-            # Параметры игнорируем – auto_arima сама всё подберёт
             try:
                 model = auto_arima(
                     history,

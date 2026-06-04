@@ -42,11 +42,6 @@ def walk_forward_evaluate(
                     best_score = avg_rmse
                     best_params = params
 
-        # train_val_returns = log_returns[:val_end]
-        # print("Средняя доходность train+val:", train_val_returns.mean())
-        # print("log_returns.mean(): ",log_returns.mean())
-        # print(log_returns.tail(5))
-        # print("-"*100)
 
         return best_params, best_score
     else:
@@ -58,7 +53,8 @@ def walk_forward_evaluate(
         true_prices = []
         naive_errors = []
 
-        for i in range(len(test_series) - steps + 1):
+        # for i in range(len(test_series) - steps + 1):
+        for i in range(len(test_series)):
             t_date = test_series.index[i]
             model = model_factory(history, None)  # params уже встроены
             if model is None:
@@ -66,7 +62,8 @@ def walk_forward_evaluate(
             pred_logret = predict_func(model, steps)
             cum_logret = np.sum(pred_logret)
             pred_price = last_known_price * np.exp(cum_logret)
-            true_price = full_series.loc[test_series.index[i + steps - 1]]
+            # true_price = full_series.loc[test_series.index[i + steps - 1]]
+            true_price = full_series.loc[test_series.index[i]]
             pred_prices.append(pred_price)
             true_prices.append(true_price)
             naive_errors.append(abs(true_price - last_known_price))
@@ -88,18 +85,13 @@ def walk_forward_evaluate(
         final_pred_price = final_last_price * np.exp(np.cumsum(final_pred_logret))
 
         test_returns = log_returns[val_end + pd.Timedelta(days=1):]
-        # print("Средняя доходность test:", test_returns.mean())
-        # print("log_returns.mean(): ", log_returns.mean())
-        # print(log_returns.tail(5))
-        # print("final_pred_logret: ",final_pred_logret)
-
-
-        # print(final_model.params)
-
         print("freq =", log_returns.index.freq)
         print("inferred_freq =", log_returns.index.inferred_freq)
         return {
             "pred": list(final_pred_price),
             "metrics": {"MAE": mae, "RMSE": rmse, "SMAPE": smape, "MASE": mase},
-            "info": {}
+            "info": {},
+            "test_predictions": list(pred_prices),
+            "test_actuals": list(true_prices),
+            "test_naive_errors": list(naive_errors),
         }

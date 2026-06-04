@@ -125,5 +125,8 @@ class GRUForecaster(BaseForecaster):
         return {
             "pred": list(pred_prices)[:steps],
             "metrics": {"MAE": mae, "RMSE": rmse, "SMAPE": smape, "MASE": mase},
-            "info": {"method": "GRU", "window_size": self.window_size, "hidden_units": self.hidden_units}
+            "info": {"method": "GRU", "window_size": self.window_size, "hidden_units": self.hidden_units},
+            "test_predictions": list(pred_prices),
+            "test_actuals": list(true_prices),
+            "test_naive_errors": list(naive_errors),
         }

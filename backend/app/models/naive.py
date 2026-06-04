@@ -18,20 +18,19 @@ class NaiveForecaster(BaseForecaster):
 
         # Для MASE считаем ошибки наивного прогноза "цена не изменится" (то же самое)
         naive_errors = []
-
+        pred_prices = []
+        true_prices = []
         for i, (date, true_logret) in enumerate(test_series.items()):
             # Прогноз доходности = 0
             pred_price = last_price * np.exp(0)
-            true_price = full_series.loc[date]  # фактическая цена сегодня (мы её уже знаем для теста)
+            pred_prices.append(pred_price)
+            true_price = full_series.loc[date]  # фактическая цена сегодня
+            true_prices.append(true_price)
             # Ошибка
             mae = abs(true_price - pred_price)
             errors_mae.append(mae)
             errors_rmse.append(mae ** 2)
-
-            # Наивный бенчмарк: предсказываем цену как last_price (т.е. не меняется)
             naive_errors.append(abs(true_price - last_price))
-
-            # Обновляем last_price для следующего шага
             last_price = true_price
 
         # Метрики
@@ -47,5 +46,8 @@ class NaiveForecaster(BaseForecaster):
         return {
             "pred": pred,
             "metrics": {"MAE": mae_val, "RMSE": rmse_val, "SMAPE": smape_val, "MASE": mase_val},
-            "info": {}
+            "info": {},
+            "test_predictions": pred_prices,
+            "test_actuals": true_prices,
+            "test_naive_errors": list(naive_errors),
         }
