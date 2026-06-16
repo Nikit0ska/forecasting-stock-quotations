@@ -1,53 +1,61 @@
-# naive_forecaster.py
 import numpy as np
 import pandas as pd
 from app.models.base_forecaster import BaseForecaster
 
 class NaiveForecaster(BaseForecaster):
     def forecast(self, full_series, train_end, val_end, steps, **kwargs):
-        # Преобразуем в лог-доходности (для единообразия, но наивный прогноз: доходность=0)
-        log_returns = np.log(full_series / full_series.shift(1)).dropna()
-        test_start = val_end + pd.Timedelta(days=1)
-        test_series = log_returns[test_start:]
+        H = steps
+        full_series = full_series.sort_index()
 
-        # Имитируем walk-forward по тесту: прогноз на каждом шаге – нулевая доходность
-        # Восстанавливаем цены, считаем ошибки
-        errors_mae = []
-        errors_rmse = []
-        last_price = full_series.loc[val_end]  # цена на конец валидации
+        # ----- Знаменатель MASE: MAE наивного метода на ОБУЧЕНИИ (шаг 1) -----
+        train_series = full_series[:train_end]
+        train_naive_errors = np.abs(train_series.diff().dropna()).values
+        mase_denom = np.mean(train_naive_errors) if len(train_naive_errors) > 0 else 1e-6
 
-        # Для MASE считаем ошибки наивного прогноза "цена не изменится" (то же самое)
-        naive_errors = []
-        pred_prices = []
-        true_prices = []
-        for i, (date, true_logret) in enumerate(test_series.items()):
-            # Прогноз доходности = 0
-            pred_price = last_price * np.exp(0)
-            pred_prices.append(pred_price)
-            true_price = full_series.loc[date]  # фактическая цена сегодня
-            true_prices.append(true_price)
-            # Ошибка
-            mae = abs(true_price - pred_price)
-            errors_mae.append(mae)
-            errors_rmse.append(mae ** 2)
-            naive_errors.append(abs(true_price - last_price))
-            last_price = true_price
+        # ----- Тестовые даты -----
+        test_dates = full_series.index[full_series.index > val_end]
+        if len(test_dates) < H:
+            raise ValueError(f"Тестовый период ({len(test_dates)}) меньше горизонта {H}")
 
-        # Метрики
-        mae_val = np.mean(errors_mae)
-        rmse_val = np.sqrt(np.mean(errors_rmse))
-        smape_val = np.mean(2 * np.array(errors_mae) / (np.array([full_series.loc[date] for date in test_series.index]) + last_price)) * 100  # упрощённо; в реальности лучше пошагово
-        mase_val = mae_val / np.mean(naive_errors) if np.mean(naive_errors) > 0 else 0
+        # ----- Собираем ошибки только на шаге H -----
+        errors_h = []      # абсолютные ошибки
+        actuals_h = []     # фактические цены (для SMAPE)
+        preds_h = []       # прогнозные цены
 
-        # Финальный прогноз от последней известной цены
-        final_last_price = full_series.iloc[-1]
-        pred = [final_last_price] * steps  # цена не меняется
+        for i in range(len(test_dates) - H + 1):
+            # Цена перед окном (база для наивного прогноза)
+            if i == 0:
+                price_before = full_series.loc[val_end]
+            else:
+                price_before = full_series.loc[test_dates[i-1]]
+
+            # Фактическая цена на шаге H
+            actual = full_series.loc[test_dates[i + H - 1]]
+            pred = price_before
+            error = abs(actual - pred)
+
+            errors_h.append(error)
+            actuals_h.append(actual)
+            preds_h.append(pred)
+
+        # ----- Итоговые метрики для горизонта H -----
+        errors = np.array(errors_h)
+        actual = np.array(actuals_h)
+        pred = np.array(preds_h)
+
+        mae = np.mean(errors)
+        rmse = np.sqrt(np.mean(errors**2))
+        smape = 100 * np.mean(2 * np.abs(actual - pred) / (np.abs(actual) + np.abs(pred) + 1e-8))
+        mase = mae / mase_denom
+
+        # ----- Финальный прогноз на H шагов (для поля "pred") -----
+        final_pred = [full_series.iloc[-1]] * H
 
         return {
-            "pred": pred,
-            "metrics": {"MAE": mae_val, "RMSE": rmse_val, "SMAPE": smape_val, "MASE": mase_val},
-            "info": {},
-            "test_predictions": pred_prices,
-            "test_actuals": true_prices,
-            "test_naive_errors": list(naive_errors),
+            "pred": final_pred,
+            "metrics": {"MAE": float(mae), "RMSE": float(rmse), "SMAPE": float(smape), "MASE": float(mase)},
+            "info": {"horizon": H, "num_windows": len(test_dates)-H+1},
+            "test_predictions": None,
+            "test_actuals": None,
+            "test_naive_errors": list(train_naive_errors)
         }

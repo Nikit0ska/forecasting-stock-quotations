@@ -11,59 +11,89 @@ class ProphetForecaster(BaseForecaster):
         self.daily_seasonality = daily_seasonality
 
     def forecast(self, full_series, train_end, val_end, steps, **kwargs):
+        H = steps
         full_series = full_series.sort_index()
-        log_returns = np.log(full_series / full_series.shift(1)).dropna()
 
-        # Подготавливаем данные для Prophet
-        df = pd.DataFrame({
-            'ds': log_returns.index,
-            'y': log_returns.values
-        })
+        # ----- Знаменатель MASE (одношаговый наивный на обучении) -----
+        train_series = full_series[:train_end]
+        train_naive_errors = np.abs(train_series.diff().dropna()).values
+        mase_denom = np.mean(train_naive_errors) if len(train_naive_errors) > 0 else 1e-6
 
-        # ---- Подбор на train+val для walk-forward метрик ----
-        train_val = df[df['ds'] <= val_end].copy()
+        # ----- Тестовые даты -----
+        test_dates = full_series.index[full_series.index > val_end]
+        if len(test_dates) < H:
+            raise ValueError(f"Тестовый период ({len(test_dates)}) меньше горизонта {H}")
 
-        model = Prophet(
+        # ----- Данные для Prophet (прогнозируем цены) -----
+        df = pd.DataFrame({'ds': full_series.index, 'y': full_series.values})
+
+        # ----- Хранилища ошибок только для шага H -----
+        errors_h = []
+        actuals_h = []
+        preds_h = []
+
+        # ----- Walk-forward, для каждого окна прогнозируем на H шагов, но берём только ошибку на шаге H -----
+        for i in range(len(test_dates) - H + 1):
+            window_start = test_dates[i]
+            train_df = df[df['ds'] < window_start].copy()
+            if len(train_df) < 2:
+                continue
+
+            # Обучаем Prophet
+            model = Prophet(
+                yearly_seasonality=self.yearly_seasonality,
+                weekly_seasonality=self.weekly_seasonality,
+                daily_seasonality=self.daily_seasonality
+            )
+            if len(train_df) < 100:
+                model = Prophet(yearly_seasonality=False, weekly_seasonality=False, daily_seasonality=False)
+            model.fit(train_df)
+
+            # Прогноз на H шагов вперёд
+            future_dates = [test_dates[i + h - 1] for h in range(1, H+1)]
+            future = pd.DataFrame({'ds': future_dates})
+            forecast = model.predict(future)
+            pred_values = forecast['yhat'].values
+
+            # Берём только шаг H
+            pred = pred_values[H-1]
+            actual = full_series.loc[future_dates[H-1]]
+            error = abs(actual - pred)
+
+            errors_h.append(error)
+            actuals_h.append(actual)
+            preds_h.append(pred)
+
+        # ----- Итоговые метрики для горизонта H -----
+        if len(errors_h) == 0:
+            raise RuntimeError("Не удалось построить ни одного окна. Возможно, тестовый период слишком мал.")
+
+        errors = np.array(errors_h)
+        actual = np.array(actuals_h)
+        pred = np.array(preds_h)
+
+        mae = np.mean(errors)
+        rmse = np.sqrt(np.mean(errors**2))
+        smape = 100 * np.mean(2 * np.abs(actual - pred) / (np.abs(actual) + np.abs(pred) + 1e-8))
+        mase = mae / mase_denom
+
+        # ----- Финальный прогноз на H шагов (для поля "pred") -----
+        final_model = Prophet(
             yearly_seasonality=self.yearly_seasonality,
             weekly_seasonality=self.weekly_seasonality,
             daily_seasonality=self.daily_seasonality
         )
-
-        model.fit(train_val)
-
-        # ---- Прогноз на test ----
-        # тестовые даты = только те, что реально есть в ряде
-        test_dates = df[df['ds'] > val_end]['ds']
-        future = pd.DataFrame({'ds': test_dates})
-        forecast_test = model.predict(future)
-        pred_logret = forecast_test['yhat'].values
-
-
-
-        # ---- Переводим в цены ----
-        last_price = full_series.loc[val_end]
-        pred_prices = last_price * np.exp(np.cumsum(pred_logret))
-
-        true_prices = full_series.loc[test_dates].values
-        naive_errors = np.abs(true_prices - last_price)
-
-        mae = np.mean(np.abs(true_prices - pred_prices))
-        rmse = np.sqrt(np.mean((true_prices - pred_prices) ** 2))
-        smape = np.mean(2 * np.abs(true_prices - pred_prices) / (np.abs(true_prices) + np.abs(pred_prices))) * 100
-        mase = mae / np.mean(naive_errors) if np.mean(naive_errors) > 0 else np.nan
-
-        # ---- Финальный прогноз на steps вперед ----
-        future_steps = pd.date_range(start=full_series.index[-1] + pd.Timedelta(days=1), periods=steps, freq='D')
+        final_model.fit(df)
+        future_steps = pd.date_range(start=full_series.index[-1] + pd.Timedelta(days=1), periods=H, freq='D')
         future_final = pd.DataFrame({'ds': future_steps})
-        forecast_final = model.predict(future_final)
-        final_pred_logret = forecast_final['yhat'].values
-        final_pred_price = full_series.iloc[-1] * np.exp(np.cumsum(final_pred_logret))
+        forecast_final = final_model.predict(future_final)
+        final_pred = forecast_final['yhat'].values
 
         return {
-            "pred": list(final_pred_price),
-            "metrics": {"MAE": mae, "RMSE": rmse, "SMAPE": smape, "MASE": mase},
-            "info": {"method": "Prophet"},
-            "test_predictions": list(pred_prices),
-            "test_actuals": list(true_prices),
-            "test_naive_errors": list(naive_errors),
+            "pred": list(final_pred),
+            "metrics": {"MAE": float(mae), "RMSE": float(rmse), "SMAPE": float(smape), "MASE": float(mase)},
+            "info": {"method": "Prophet", "horizon": H, "num_windows": len(test_dates)-H+1},
+            "test_predictions": None,
+            "test_actuals": None,
+            "test_naive_errors": list(train_naive_errors)
         }
